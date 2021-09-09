@@ -1,0 +1,5 @@
+build/
+clipper/*
+!clipper/clipper.cpp
+!clipper/clipper.hpp
+!clipper/License.txt
