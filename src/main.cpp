@@ -3,22 +3,12 @@
 
 using namespace ClipperLib;
 
-// static float idx_getfloat(JanetView idx, int index) {
-//     if (index >= idx.len) {
-//         janet_panicf("index %d outside of range [0, %d)", idx.len);
-//     }
-//     if (!janet_checktype(idx.items[index], JANET_NUMBER)) {
-//         janet_panicf("expected number, got %v", idx.items[index]);
-//     }
-//     return (float) janet_unwrap_number(idx.items[index]);
-// }
-
 static float idx_getint(JanetView idx, int index) {
   if (index >= idx.len) {
       janet_panicf("index %d outside of range [0, %d)", idx.len);
   }
   if (!janet_checkint(idx.items[index])) {
-    janet_panicf("expected number, got %v", idx.items[index]);
+    janet_panicf("expected integer, got %v", idx.items[index]);
   }
   return janet_unwrap_integer(idx.items[index]);
 }
@@ -71,27 +61,41 @@ static Janet clipper_wrap_paths(Paths paths) {
   return janet_wrap_tuple(janet_tuple_end(tup));
 }
 
-static Janet cfun_Intersect(int32_t argc, Janet *argv) {
+static Paths intersection_helper(int32_t argc, Janet *argv) {
   janet_fixarity(argc, 2);
+  Clipper clipper;
   Path subject = clipper_getpath(argv, 0);
   Path clip = clipper_getpath(argv, 1);
-  Paths result;
-
-  Clipper clipper;
-
   Paths subjects = {subject};
   Paths clips = {clip};
-
   clipper.AddPaths(subjects, ptSubject, true);
-  clipper.AddPaths(clips, ptClip, true);
-  
-  clipper.Execute(ctIntersection, result, pftEvenOdd);
+  clipper.AddPaths(clips, ptClip, true);  
 
-  return clipper_wrap_paths(result);
+  Paths result;
+  clipper.Execute(ctIntersection, result, pftNonZero);
+  return result;
+}
+
+static double paths_area(Paths paths) {
+  double area = 0;
+  for (size_t i = 0; i < paths.size(); i++) {
+    area += Area(paths[i]);
+  }
+  return area;
+}
+
+static Janet cfun_Intersection(int32_t argc, Janet *argv) {
+  return clipper_wrap_paths(intersection_helper(argc, argv));
+}
+
+// TODO: maybe instead of 0 we should have some numeric epsilon thing
+static Janet cfun_Intersects(int32_t argc, Janet *argv) {
+  return janet_wrap_boolean(paths_area(intersection_helper(argc, argv)) > 0);
 }
 
 static JanetReg cfuns[] = {
-  {"intersect", cfun_Intersect, NULL},
+  {"intersection", cfun_Intersection, NULL},
+  {"intersects?", cfun_Intersects, NULL},
   {NULL, NULL, NULL}
 };
 
