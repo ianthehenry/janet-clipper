@@ -3,6 +3,8 @@
 
 using namespace ClipperLib;
 
+static float numerical_tolerance = 0.00001;
+
 static float idx_getint(JanetView idx, int index) {
   if (index >= idx.len) {
       janet_panicf("index %d outside of range [0, %d)", idx.len);
@@ -22,18 +24,41 @@ static JanetView idx_getindexed(JanetView idx, int index) {
     return view;
 }
 
-static Path clipper_getpath(const Janet *argv, int32_t n) {
-  JanetView points = janet_getindexed(argv, n);
-  Path path;
-  path.resize(points.len);
+static IntPoint parse_point(JanetView janet_point) {
+  IntPoint point;
+  point.X = idx_getint(janet_point, 0);
+  point.Y = idx_getint(janet_point, 1);
+  return point;
+}
 
-  for (int i = 0; i < points.len; i++) {
-    JanetView point = idx_getindexed(points, i);
-    path[i].X = idx_getint(point, 0);
-    path[i].Y = idx_getint(point, 1);
+static Path parse_path(JanetView janet_path) {
+  Path path;
+  path.resize(janet_path.len);
+
+  for (int i = 0; i < janet_path.len; i++) {
+    path[i] = parse_point(idx_getindexed(janet_path, i));
   }
 
   return path;
+}
+
+static Paths parse_paths(JanetView janet_paths) {
+  Paths paths;
+  paths.resize(janet_paths.len);
+
+  for (int i = 0; i < janet_paths.len; i++) {
+    paths[i] = parse_path(idx_getindexed(janet_paths, i));
+  }
+
+  return paths;
+}
+
+static Path clipper_getpath(const Janet *argv, int32_t n) {
+  return parse_path(janet_getindexed(argv, n));
+}
+
+static Paths clipper_getpaths(const Janet *argv, int32_t n) {
+  return parse_paths(janet_getindexed(argv, n));
 }
 
 static Janet clipper_wrap_point(IntPoint p) {
@@ -70,7 +95,18 @@ static Paths intersection_helper(int32_t argc, Janet *argv) {
   Paths clips = {clip};
   clipper.AddPaths(subjects, ptSubject, true);
   clipper.AddPaths(clips, ptClip, true);  
+  Paths result;
+  clipper.Execute(ctIntersection, result, pftNonZero);
+  return result;
+}
 
+static Paths intersection_multi_helper(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 2);
+  Clipper clipper;
+  Paths subjects = clipper_getpaths(argv, 0);
+  Paths clips = clipper_getpaths(argv, 1);
+  clipper.AddPaths(subjects, ptSubject, true);
+  clipper.AddPaths(clips, ptClip, true);  
   Paths result;
   clipper.Execute(ctIntersection, result, pftNonZero);
   return result;
@@ -90,12 +126,17 @@ static Janet cfun_Intersection(int32_t argc, Janet *argv) {
 
 // TODO: maybe instead of 0 we should have some numeric epsilon thing
 static Janet cfun_Intersects(int32_t argc, Janet *argv) {
-  return janet_wrap_boolean(paths_area(intersection_helper(argc, argv)) > 0);
+  return janet_wrap_boolean(paths_area(intersection_helper(argc, argv)) > numerical_tolerance);
+}
+
+static Janet cfun_IntersectsAny(int32_t argc, Janet *argv) {
+  return janet_wrap_boolean(paths_area(intersection_multi_helper(argc, argv)) > numerical_tolerance);
 }
 
 static JanetReg cfuns[] = {
   {"intersection", cfun_Intersection, NULL},
   {"intersects?", cfun_Intersects, NULL},
+  {"intersects-any?", cfun_IntersectsAny, NULL},
   {NULL, NULL, NULL}
 };
 
